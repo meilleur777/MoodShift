@@ -9,6 +9,16 @@ import pandas as pd
 import time
 from typing import List, Dict
 import json
+import os
+from pathlib import Path
+
+# Try to load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
 
 
 class SpotifyDataCollector:
@@ -74,17 +84,44 @@ class SpotifyDataCollector:
         """
         all_features = []
         
-        # Process in batches of 100
-        for i in range(0, len(track_ids), 100):
-            batch = track_ids[i:i+100]
-            features = self.sp.audio_features(batch)
+        # Process in batches of 50 to be safe (API says 100 max, but let's be conservative)
+        batch_size = 50
+        total_batches = (len(track_ids) + batch_size - 1) // batch_size
+        
+        print(f"  Processing {len(track_ids)} tracks in {total_batches} batches...")
+        
+        for i in range(0, len(track_ids), batch_size):
+            batch = track_ids[i:i+batch_size]
+            batch_num = (i // batch_size) + 1
             
-            # Filter out None results
-            all_features.extend([f for f in features if f is not None])
+            try:
+                print(f"  [{batch_num}/{total_batches}] Fetching features for {len(batch)} tracks...", end=' ')
+                features = self.sp.audio_features(batch)
+                
+                if features:
+                    # Filter out None results
+                    valid_features = [f for f in features if f is not None]
+                    all_features.extend(valid_features)
+                    print(f"✓ Got {len(valid_features)} features")
+                else:
+                    print("⚠️  No features returned")
+                
+            except Exception as e:
+                print(f"⚠️  Error: {str(e)[:50]}")
+                # Try one by one for this batch if batch fails
+                print(f"    Retrying tracks individually...")
+                for track_id in batch:
+                    try:
+                        feature = self.sp.audio_features([track_id])
+                        if feature and feature[0]:
+                            all_features.append(feature[0])
+                    except:
+                        continue  # Skip this track if it fails
             
             # Be nice to the API
-            time.sleep(0.1)
+            time.sleep(0.2)
         
+        print(f"  Total features collected: {len(all_features)}")
         return all_features
     
     def search_tracks_by_mood(self, mood_params: Dict, limit: int = 50) -> List[Dict]:
@@ -92,55 +129,120 @@ class SpotifyDataCollector:
         Search for tracks based on mood parameters using Spotify's recommendation system
         
         Args:
-            mood_params: Dictionary with audio feature targets (valence, energy, etc.)
-            limit: Number of tracks to retrieve
+            mood_params: Dictionary with audio feature min/max values (valence, energy, etc.)
+            limit: Number of tracks to retrieve (will be fetched in batches)
             
         Returns:
             List of track dictionaries
         """
-        # Get seed tracks (popular tracks)
-        seed_tracks = []
-        results = self.sp.search(q='year:2020-2024', type='track', limit=5)
-        for track in results['tracks']['items']:
-            seed_tracks.append(track['id'])
-        
-        # Get recommendations based on mood parameters
-        recommendations = self.sp.recommendations(
-            seed_tracks=seed_tracks[:5],  # Max 5 seed tracks
-            limit=limit,
-            **mood_params
-        )
+        # Spotify recommendations API works best with genres
+        # Popular genres that work well for mood-based recommendations
+        seed_genres = ['pop', 'rock', 'indie', 'electronic', 'hip-hop']
         
         tracks = []
-        for track in recommendations['tracks']:
-            tracks.append({
-                'track_id': track['id'],
-                'name': track['name'],
-                'artist': ', '.join([artist['name'] for artist in track['artists']]),
-                'album': track['album']['name'],
-                'popularity': track['popularity'],
-                'duration_ms': track['duration_ms']
-            })
+        max_per_request = 50
         
-        return tracks
+        # Calculate how many batches we need
+        num_batches = (limit + max_per_request - 1) // max_per_request
+        
+        for batch_num in range(num_batches):
+            try:
+                # How many more tracks do we need?
+                remaining = limit - len(tracks)
+                batch_limit = min(remaining, max_per_request)
+                
+                # Rotate through genres for variety
+                genre_set = seed_genres[batch_num % len(seed_genres):]
+                
+                # Get recommendations based on mood parameters
+                # Use min/max parameters which are better supported
+                recommendations = self.sp.recommendations(
+                    seed_genres=genre_set[:3],  # Use 3 genres for variety
+                    limit=batch_limit,
+                    **mood_params
+                )
+                
+                # Extract track info
+                if recommendations and 'tracks' in recommendations:
+                    for track in recommendations['tracks']:
+                        if track:  # Make sure track is not None
+                            tracks.append({
+                                'track_id': track['id'],
+                                'name': track['name'],
+                                'artist': ', '.join([artist['name'] for artist in track['artists']]),
+                                'album': track['album']['name'],
+                                'popularity': track['popularity'],
+                                'duration_ms': track['duration_ms']
+                            })
+                
+                # Stop if we have enough tracks
+                if len(tracks) >= limit:
+                    break
+                    
+                # Rate limiting between batches
+                time.sleep(0.3)
+                
+            except Exception as e:
+                print(f"    Warning: Error in batch {batch_num + 1}: {str(e)}")
+                # Try with a simpler approach using just one genre
+                try:
+                    simple_recommendations = self.sp.recommendations(
+                        seed_genres=['pop'],
+                        limit=min(20, remaining),
+                        **mood_params
+                    )
+                    if simple_recommendations and 'tracks' in simple_recommendations:
+                        for track in simple_recommendations['tracks']:
+                            if track and len(tracks) < limit:
+                                tracks.append({
+                                    'track_id': track['id'],
+                                    'name': track['name'],
+                                    'artist': ', '.join([artist['name'] for artist in track['artists']]),
+                                    'album': track['album']['name'],
+                                    'popularity': track['popularity'],
+                                    'duration_ms': track['duration_ms']
+                                })
+                except:
+                    pass  # If even the simple approach fails, continue to next batch
+                
+                continue
+        
+        return tracks[:limit]  # Return exactly the requested number
     
-    def collect_diverse_dataset(self, num_tracks_per_category: int = 100) -> pd.DataFrame:
+    def collect_diverse_dataset(self, num_tracks_per_category: int = 50) -> pd.DataFrame:
         """
         Collect a diverse dataset covering different moods
         
         Args:
             num_tracks_per_category: Number of tracks to collect per mood category
+                                    (default: 50, max recommended: 100)
             
         Returns:
             DataFrame with tracks and their features
         """
         # Define mood categories based on valence and energy
+        # Using min/max ranges instead of target values for better API compatibility
         mood_categories = {
-            'happy_energetic': {'target_valence': 0.8, 'target_energy': 0.8},
-            'happy_calm': {'target_valence': 0.8, 'target_energy': 0.3},
-            'sad_energetic': {'target_valence': 0.2, 'target_energy': 0.8},
-            'sad_calm': {'target_valence': 0.2, 'target_energy': 0.3},
-            'neutral': {'target_valence': 0.5, 'target_energy': 0.5}
+            'happy_energetic': {
+                'min_valence': 0.6, 'max_valence': 1.0,
+                'min_energy': 0.6, 'max_energy': 1.0
+            },
+            'happy_calm': {
+                'min_valence': 0.6, 'max_valence': 1.0,
+                'min_energy': 0.0, 'max_energy': 0.4
+            },
+            'sad_energetic': {
+                'min_valence': 0.0, 'max_valence': 0.4,
+                'min_energy': 0.6, 'max_energy': 1.0
+            },
+            'sad_calm': {
+                'min_valence': 0.0, 'max_valence': 0.4,
+                'min_energy': 0.0, 'max_energy': 0.4
+            },
+            'neutral': {
+                'min_valence': 0.4, 'max_valence': 0.6,
+                'min_energy': 0.4, 'max_energy': 0.6
+            }
         }
         
         all_tracks = []
@@ -245,18 +347,70 @@ def main():
     """
     Example usage of the SpotifyDataCollector
     """
-    # You need to get these from https://developer.spotify.com/dashboard
-    CLIENT_ID = "your_client_id_here"
-    CLIENT_SECRET = "your_client_secret_here"
+    # Try to get credentials from environment variables first
+    CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
+    CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
     
-    # Initialize collector
-    collector = SpotifyDataCollector(CLIENT_ID, CLIENT_SECRET)
+    # If not found in environment, use hardcoded values (for manual setup)
+    if not CLIENT_ID or not CLIENT_SECRET:
+        print("⚠️  No .env file found or credentials not set in environment variables")
+        print("Using hardcoded credentials from this file...\n")
+        
+        # You can set your credentials here directly
+        CLIENT_ID = "your_client_id_here"
+        CLIENT_SECRET = "your_client_secret_here"
+    else:
+        print("✓ Loaded credentials from .env file\n")
+    
+    # Validate credentials
+    if CLIENT_ID == "your_client_id_here" or CLIENT_SECRET == "your_client_secret_here":
+        print("=" * 60)
+        print("❌ ERROR: Spotify API credentials not configured!")
+        print("=" * 60)
+        print("\nOption 1 (Recommended): Use .env file")
+        print("  1. Install python-dotenv: pip install python-dotenv")
+        print("  2. Create a .env file in the same directory as this script")
+        print("  3. Add these lines to .env:")
+        print("     SPOTIFY_CLIENT_ID=your_client_id_here")
+        print("     SPOTIFY_CLIENT_SECRET=your_client_secret_here")
+        print("\nOption 2: Edit this file directly")
+        print(f"  1. Open {__file__}")
+        print("  2. Find the main() function (around line 250)")
+        print("  3. Replace 'your_client_id_here' and 'your_client_secret_here'")
+        print("\nTo get your credentials:")
+        print("  → Visit https://developer.spotify.com/dashboard")
+        print("  → Click on your app → Settings")
+        print("  → Copy Client ID and Client Secret")
+        print("=" * 60)
+        return
+    
+    # Display credential info (safely)
+    print(f"✓ Client ID: {CLIENT_ID[:10]}...{CLIENT_ID[-5:]}")
+    print(f"✓ Client Secret configured (length: {len(CLIENT_SECRET)} chars)")
+    
+    try:
+        # Initialize collector
+        print("\n" + "=" * 60)
+        print("Initializing Spotify API connection...")
+        print("=" * 60)
+        collector = SpotifyDataCollector(CLIENT_ID, CLIENT_SECRET)
+        print("✓ Successfully connected to Spotify API!\n")
+    except Exception as e:
+        print(f"\n❌ Failed to connect to Spotify API: {e}")
+        print("\nTroubleshooting:")
+        print("  1. Verify your Client ID and Client Secret are correct")
+        print("  2. Make sure there are no extra spaces")
+        print("  3. Check that your app is created on Spotify Dashboard")
+        return
     
     # Method 1: Collect diverse dataset based on mood categories
     print("=" * 60)
     print("Method 1: Collecting diverse dataset")
     print("=" * 60)
-    df_diverse = collector.collect_diverse_dataset(num_tracks_per_category=100)
+    print("Collecting 50 tracks per mood category (5 categories)")
+    print("This will result in ~250 unique tracks after deduplication")
+    print("=" * 60)
+    df_diverse = collector.collect_diverse_dataset(num_tracks_per_category=50)
     print(f"\nDataset shape: {df_diverse.shape}")
     print("\nFirst few rows:")
     print(df_diverse.head())
