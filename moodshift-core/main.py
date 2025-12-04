@@ -1,7 +1,6 @@
 """
-MoodShift - Main Recommendation System
-Combines mood classification, collaborative filtering, and path generation
-to create mood-transitioning playlists
+MoodShift - Main Recommendation System (ENHANCED)
+Added starting_intensity parameter for better control over first song selection
 """
 
 import pandas as pd
@@ -47,7 +46,6 @@ class MoodShift:
             print("   Adding mood classifications...")
             self.dataset = self.mood_classifier.classify_dataset(self.dataset)
         elif 'mood_category' in self.dataset.columns and 'mood' not in self.dataset.columns:
-            # Rename mood_category to mood for consistency
             self.dataset['mood'] = self.dataset['mood_category']
         
         self.path_generator = PathGenerator(self.dataset)
@@ -57,7 +55,8 @@ class MoodShift:
     
     def create_playlist(self, current_mood: str, target_mood: str,
                        length: int = 10, method: str = 'smooth',
-                       use_collaborative: bool = False) -> pd.DataFrame:
+                       use_collaborative: bool = False,
+                       starting_intensity: str = 'moderate') -> pd.DataFrame:
         """
         Create a mood-transitioning playlist.
         
@@ -67,12 +66,14 @@ class MoodShift:
             length: Number of songs in playlist
             method: 'greedy' or 'smooth' path generation
             use_collaborative: Whether to use collaborative filtering
+            starting_intensity: 'gentle', 'moderate', or 'intense' for first song
             
         Returns:
             DataFrame with playlist tracks
         """
         print("=" * 70)
         print(f"Creating playlist: {current_mood} → {target_mood}")
+        print(f"Starting intensity: {starting_intensity}")
         print("=" * 70)
         
         # Validate moods
@@ -84,18 +85,25 @@ class MoodShift:
         if target_mood not in valid_moods:
             raise ValueError(f"Invalid target_mood. Must be one of: {valid_moods}")
         
+        # Validate starting_intensity
+        valid_intensities = ['gentle', 'moderate', 'intense']
+        if starting_intensity not in valid_intensities:
+            raise ValueError(f"Invalid starting_intensity. Must be one of: {valid_intensities}")
+        
         # Generate path
         if method == 'smooth':
             path = self.path_generator.generate_path_smooth(
                 start_mood=current_mood,
                 target_mood=target_mood,
-                length=length
+                length=length,
+                starting_intensity=starting_intensity
             )
         else:
             path = self.path_generator.generate_path_greedy(
                 start_mood=current_mood,
                 target_mood=target_mood,
-                length=length
+                length=length,
+                starting_intensity=starting_intensity
             )
         
         # Convert to DataFrame
@@ -104,8 +112,7 @@ class MoodShift:
         # Add recommendations using collaborative filtering
         if use_collaborative and len(path) > 0:
             print("\n🎯 Enhancing with collaborative filtering...")
-            # Replace some tracks with similar but potentially better ones
-            for i in range(min(3, len(path))):  # Enhance first 3 tracks
+            for i in range(min(3, len(path))):
                 track_id = path[i]['track_id']
                 similar = self.collaborative_filter.get_similar_tracks(
                     track_id, n=3,
@@ -127,14 +134,10 @@ class MoodShift:
         Returns:
             DataFrame with recommended tracks
         """
-        # Get center of mood
         valence, energy = self.mood_classifier.get_mood_center(mood)
-        
-        # Find closest tracks
         tracks = self.mood_classifier.find_closest_tracks(
             self.dataset, valence, energy, n=n
         )
-        
         return tracks[['track_id', 'name', 'artist', 'valence', 'energy', 'distance']]
     
     def analyze_track(self, track_id: str) -> Dict:
@@ -155,7 +158,10 @@ class MoodShift:
         track = track.iloc[0]
         
         # Classify mood
-        mood = self.mood_classifier.classify(
+        mood = self.mood_classifier.classify(track['valence'], track['energy'])
+        
+        # Calculate intensity
+        intensity = self.path_generator.calculate_intensity(
             track['valence'], track['energy']
         )
         
@@ -169,12 +175,12 @@ class MoodShift:
             'valence': track['valence'],
             'energy': track['energy'],
             'mood': mood,
+            'intensity': intensity,
             'similar_tracks': [s['name'] for s in similar]
         }
     
     def get_dataset_statistics(self) -> Dict:
         """Get statistics about the dataset."""
-        # Check if mood column exists, if not use mood_category
         mood_col = 'mood' if 'mood' in self.dataset.columns else 'mood_category'
         
         stats = {
@@ -219,6 +225,9 @@ def main():
     parser.add_argument('--method', type=str, default='smooth',
                        choices=['smooth', 'greedy'],
                        help='Path generation method')
+    parser.add_argument('--starting-intensity', type=str, default='gentle',
+                       choices=['gentle', 'moderate', 'intense'],
+                       help='Intensity of the first song (gentle=calm, moderate=balanced, intense=powerful)')
     parser.add_argument('--output', type=str, default='moodshift_playlist.csv',
                        help='Output filename')
     
@@ -246,7 +255,8 @@ def main():
         current_mood=args.current_mood,
         target_mood=args.target_mood,
         length=args.length,
-        method=args.method
+        method=args.method,
+        starting_intensity=args.starting_intensity
     )
     
     # Display playlist
@@ -265,6 +275,13 @@ def main():
         print(f"   Smoothness score: {smoothness:.3f} (lower is better)")
         print(f"   Start mood: {playlist.iloc[0]['mood']}")
         print(f"   End mood: {playlist.iloc[-1]['mood']}")
+        
+        # Show intensity of first track
+        first_track = playlist.iloc[0]
+        intensity = moodshift.path_generator.calculate_intensity(
+            first_track['valence'], first_track['energy']
+        )
+        print(f"   First track intensity: {intensity:.3f} (0=calm, 1=intense)")
     
     # Save playlist
     moodshift.save_playlist(playlist, args.output)
@@ -272,10 +289,10 @@ def main():
     print("\n" + "=" * 70)
     print("✅ MoodShift complete!")
     print("=" * 70)
-    print("\nNext steps:")
-    print("  1. Listen to the playlist in order")
-    print("  2. Notice how the mood gradually shifts")
-    print("  3. Adjust parameters for different experiences")
+    print("\nTip: Use --starting-intensity to control first song:")
+    print("  --starting-intensity gentle   → Calm, soothing start")
+    print("  --starting-intensity moderate → Balanced start (default)")
+    print("  --starting-intensity intense  → Powerful, emotional start")
     print("\n" + "=" * 70)
 
 

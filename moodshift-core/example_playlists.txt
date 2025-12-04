@@ -1,0 +1,98 @@
+# Example Playlists - Three Methods Comparison
+
+## Original (Pure Mood)
+
+```
+ 1. Cryin'                                   - Aerosmith           
+    Mood: sad_calm             (V=0.18, E=0.23)
+ 2. As Ballad                                - Lambert             
+    Mood: sad_calm             (V=0.21, E=0.26)
+ 3. Emotional ballad                         - Jazz Music DEA Chann
+    Mood: sad_calm             (V=0.24, E=0.29)
+ 4. Broken Heart (Sad Music)                 - Sad Pianist         
+    Mood: sad_calm             (V=0.30, E=0.35)
+ 5. Popular                                  - Lil Wayne, Lil Twist
+    Mood: neutral              (V=0.41, E=0.41)
+ 6. Popular Monster                          - Halocene, Lauren Bab
+    Mood: neutral              (V=0.48, E=0.48)
+ 7. Top Hits                                 - Popular Songs, Best 
+    Mood: neutral              (V=0.50, E=0.50)
+ 8. Popular - From "Wicked" Original Broadwa - Stephen Schwartz, Kr
+    Mood: neutral              (V=0.57, E=0.57)
+ 9. Cliché                                   - Upbeat Retail       
+    Mood: happy_energetic      (V=0.70, E=0.70)
+10. Motel 6                                  - Nic D               
+    Mood: happy_energetic      (V=0.77, E=0.77)
+```
+
+**Metrics:**
+- Smoothness: 0.090
+- CF Cohesion: 0.457
+- Variety: 0.185
+
+---
+
+## CF-Enhanced (cf_weight=1.0)
+
+```
+ 1. Cryin'                                   - Aerosmith           
+    Mood: sad_calm             (V=0.18, E=0.23)
+ 2. Emotional ballad                         - Jazz Music DEA Chann
+    Mood: sad_calm             (V=0.24, E=0.29)
+ 3. Ballade                                  - Luke Faulkner       
+    Mood: sad_calm             (V=0.27, E=0.32)
+ 4. Beautiful Japanese Meditation Ballads    - Japanese Zen Shakuha
+    Mood: sad_calm             (V=0.32, E=0.37)
+ 5. Poplar                                   - Chris Travis        
+    Mood: neutral              (V=0.47, E=0.47)
+ 6. Top Hits                                 - Popular Songs, Best 
+    Mood: neutral              (V=0.50, E=0.50)
+ 7. Hallelujah - Live at Benaroya Hall, Seat - Brandi Carlile, Seat
+    Mood: neutral              (V=0.57, E=0.57)
+ 8. OUTRO                                    - LILA SOVIA          
+    Mood: happy_energetic      (V=0.72, E=0.67)
+ 9. DANCEPARTY.                              - Oblé Reed, YTK      
+    Mood: happy_energetic      (V=0.78, E=0.78)
+10. Abhi Toh Party Shuru Hui Hai (From "Khoo - Badshah, Aastha     
+    Mood: happy_energetic      (V=0.80, E=0.80)
+```
+
+**Metrics:**
+- Smoothness: 0.095
+- CF Cohesion: 0.832
+- Variety: 0.205
+
+---
+
+## CF+Random (rand=0.7, div=0.5, serend=True)
+
+```
+ 1. 528 Hz Emotional Healing                 - Miracle Tones, Solfe
+    Mood: sad_calm             (V=0.19, E=0.24)
+ 2. Sad Monster Piano                        - The Monster Hallowee
+    Mood: sad_calm             (V=0.17, E=0.22)
+ 3. Melancholy Snowfall                      - Michele McLaughlin  
+    Mood: sad_calm             (V=0.23, E=0.28)
+ 4. Popular                                  - One Piano           
+    Mood: neutral              (V=0.46, E=0.46)
+ 5. Sugar Sweet                              - Benson Boone        
+    Mood: neutral              (V=0.46, E=0.46)
+ 6. BEFORE I GO TO BED                       - Aim Vision          
+    Mood: neutral              (V=0.56, E=0.56)
+ 7. Slow It Down                             - Benson Boone        
+    Mood: neutral              (V=0.53, E=0.53)
+ 8. The Biggest Pt. 2                        - BossMan Dlow        
+    Mood: happy_energetic      (V=0.75, E=0.75)
+ 9. Feel Good                                - Ryan Nealon         
+    Mood: happy_energetic      (V=0.82, E=0.77)
+10. Solo (feat. Demi Lovato)                 - Clean Bandit, Demi L
+    Mood: happy_energetic      (V=0.82, E=0.82)
+```
+
+**Metrics:**
+- Smoothness: 0.114
+- CF Cohesion: 0.330
+- Variety: 0.224
+
+---
+
